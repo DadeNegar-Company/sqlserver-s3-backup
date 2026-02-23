@@ -124,8 +124,9 @@ for db in "${DBS[@]}"; do
     cat <<EOF > /tmp/backup.sql
 BACKUP DATABASE [$db] 
 TO URL = '$FULL_URL'
--- Optimize upload chunk size (10MB) and add BUFFERCOUNT for parallel S3 uploads
-WITH COMPRESSION, MAXTRANSFERSIZE = 10485760, STATS = 10, INIT, FORMAT, BUFFERCOUNT = 50,
+-- Set MAXTRANSFERSIZE to 100MB (104,857,600) to support backups up to 1TB (avoid 10k S3 part limit)
+-- Set BUFFERCOUNT to 50 for high-throughput parallel uploads
+WITH COMPRESSION, MAXTRANSFERSIZE = 104857600, STATS = 10, INIT, FORMAT, BUFFERCOUNT = 50,
 BACKUP_OPTIONS = '{"s3": {"region":"${S3_REGION:-us-east-1}"}}';
 GO
 EOF
