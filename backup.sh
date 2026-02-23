@@ -9,6 +9,7 @@ S3_PREFIX=${S3_PREFIX:-""}
 SQL_HOST=${SQL_HOST:-"localhost"}
 SQL_PORT=${SQL_PORT:-"1433"}
 SQL_USER=${SQL_USER:-"sa"}
+FAILED=0
 
 if [ -z "$SQL_PASSWORD" ]; then
   echo "Error: SQL_PASSWORD must be provided."
@@ -42,6 +43,28 @@ if [ -n "$S3_PREFIX" ]; then
   BACKUP_BASE_URL="${BACKUP_BASE_URL}/${S3_PREFIX}"
 fi
 
+# Helper: run sqlcmd and check output for SQL errors
+# Usage: run_sqlcmd_checked "description" [sqlcmd args...]
+# Returns non-zero if SQL errors (Msg ..., Level ...) are detected in output
+run_sqlcmd_checked() {
+  local desc="$1"
+  shift
+  local output
+  output=$(/opt/mssql-tools/bin/sqlcmd "$@" 2>&1)
+  local rc=$?
+  echo "$output"
+  if [ $rc -ne 0 ]; then
+    echo "ERROR: $desc failed with exit code $rc"
+    return 1
+  fi
+  # Check for SQL Server error messages in output (e.g. "Msg 3201, Level 16, State 1")
+  if echo "$output" | grep -qE '^Msg [0-9]+, Level (1[1-9]|[2-9][0-9]), State'; then
+    echo "ERROR: $desc failed — SQL Server error detected in output"
+    return 1
+  fi
+  return 0
+}
+
 echo "Connecting to SQL Server $SQL_HOST:$SQL_PORT..."
 
 # 1. Create or Update Credential
@@ -62,7 +85,10 @@ GO
 EOF
 
 echo "Setting up S3 credentials in SQL Server for $CREDENTIAL_URL ..."
-/opt/mssql-tools/bin/sqlcmd -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -P "$SQL_PASSWORD" -C -i /tmp/setup_cred.sql
+if ! run_sqlcmd_checked "Credential setup" -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -P "$SQL_PASSWORD" -C -i /tmp/setup_cred.sql; then
+  echo "FATAL: Failed to set up S3 credentials. Aborting backup."
+  exit 1
+fi
 
 # 2. Get list of databases
 if [ "$BACKUP_ALL_DATABASES" = "true" ] || [ "$BACKUP_ALL_DATABASES" = "1" ]; then
@@ -103,9 +129,18 @@ WITH COMPRESSION, MAXTRANSFERSIZE = 10485760, STATS = 10, INIT, FORMAT,
 BACKUP_OPTIONS = '{"s3": {"region":"${S3_REGION:-us-east-1}"}}';
 GO
 EOF
-    /opt/mssql-tools/bin/sqlcmd -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -P "$SQL_PASSWORD" -C -i /tmp/backup.sql
-    echo "Finished backing up $db."
+    if run_sqlcmd_checked "Backup of $db" -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -P "$SQL_PASSWORD" -C -i /tmp/backup.sql; then
+      echo "Successfully backed up $db."
+    else
+      echo "FAILED to back up $db!"
+      FAILED=1
+    fi
   fi
 done
+
+if [ "$FAILED" -ne 0 ]; then
+  echo "SQL Server backup process completed with ERRORS."
+  exit 1
+fi
 
 echo "SQL Server backup process completed successfully."
