@@ -124,8 +124,8 @@ for db in "${DBS[@]}"; do
     cat <<EOF > /tmp/backup.sql
 BACKUP DATABASE [$db] 
 TO URL = '$FULL_URL'
--- Optimize upload chunk size (10MB) to reduce S3 requests and improve throughput
-WITH COMPRESSION, MAXTRANSFERSIZE = 10485760, STATS = 10, INIT, FORMAT,
+-- Optimize upload chunk size (10MB) and add BUFFERCOUNT for parallel S3 uploads
+WITH COMPRESSION, MAXTRANSFERSIZE = 10485760, STATS = 10, INIT, FORMAT, BUFFERCOUNT = 50,
 BACKUP_OPTIONS = '{"s3": {"region":"${S3_REGION:-us-east-1}"}}';
 GO
 EOF
