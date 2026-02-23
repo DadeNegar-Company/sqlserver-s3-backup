@@ -98,7 +98,8 @@ for db in "${DBS[@]}"; do
     cat <<EOF > /tmp/backup.sql
 BACKUP DATABASE [$db] 
 TO URL = '$FULL_URL'
-WITH COMPRESSION, STATS = 10, INIT, FORMAT;
+-- Optimize upload chunk size (10MB) to reduce S3 requests and improve throughput
+WITH COMPRESSION, MAXTRANSFERSIZE = 10485760, STATS = 10, INIT, FORMAT;
 GO
 EOF
     /opt/mssql-tools/bin/sqlcmd -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -P "$SQL_PASSWORD" -C -i /tmp/backup.sql
