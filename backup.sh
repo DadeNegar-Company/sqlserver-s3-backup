@@ -99,7 +99,8 @@ for db in "${DBS[@]}"; do
 BACKUP DATABASE [$db] 
 TO URL = '$FULL_URL'
 -- Optimize upload chunk size (10MB) to reduce S3 requests and improve throughput
-WITH COMPRESSION, MAXTRANSFERSIZE = 10485760, STATS = 10, INIT, FORMAT;
+WITH COMPRESSION, MAXTRANSFERSIZE = 10485760, STATS = 10, INIT, FORMAT,
+BACKUP_OPTIONS = '{"s3": {"region":"${S3_REGION:-us-east-1}"}}';
 GO
 EOF
     /opt/mssql-tools/bin/sqlcmd -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -P "$SQL_PASSWORD" -C -i /tmp/backup.sql
