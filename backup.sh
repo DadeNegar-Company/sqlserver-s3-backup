@@ -116,17 +116,24 @@ for db in "${DBS[@]}"; do
   
   # Ignore empty lines or dashed lines from sqlcmd output
   if [ -n "$db" ] && [[ ! "$db" =~ ^-+$ ]]; then
-    FILE_NAME="${db}_${DATE}.bak"
-    FULL_URL="${BACKUP_BASE_URL}/${FILE_NAME}"
-    echo "=============================================="
-    echo "Backing up database: $db to $FULL_URL..."
-    
+    # Generate 8 URLs for striping to support large databases and improve performance
+    URL_LIST=""
+    for i in {1..8}; do
+      STRIPE_URL="${BACKUP_BASE_URL}/${db}_${DATE}_part${i}.bak"
+      if [ -z "$URL_LIST" ]; then
+        URL_LIST="TO URL = '$STRIPE_URL'"
+      else
+        URL_LIST="${URL_LIST},
+   URL = '$STRIPE_URL'"
+      fi
+    done
+
     cat <<EOF > /tmp/backup.sql
 BACKUP DATABASE [$db] 
-TO URL = '$FULL_URL'
--- Set MAXTRANSFERSIZE to 100MB (104,857,600) to support backups up to 1TB (avoid 10k S3 part limit)
--- Set BUFFERCOUNT to 50 for high-throughput parallel uploads
-WITH COMPRESSION, MAXTRANSFERSIZE = 104857600, STATS = 10, INIT, FORMAT, BUFFERCOUNT = 50,
+$URL_LIST
+-- Set MAXTRANSFERSIZE to 20MB (20971520) - max allowed for S3
+-- Set BUFFERCOUNT to 100 for high-throughput parallel uploads across 8 stripes
+WITH COMPRESSION, MAXTRANSFERSIZE = 20971520, STATS = 10, INIT, FORMAT, BUFFERCOUNT = 100,
 BACKUP_OPTIONS = '{"s3": {"region":"${S3_REGION:-us-east-1}"}}';
 GO
 EOF
