@@ -15,6 +15,8 @@ if [ -z "$SQL_PASSWORD" ]; then
   exit 1
 fi
 
+export SQLCMDPASSWORD="$SQL_PASSWORD"
+
 if [ -z "$S3_BUCKET" ]; then
   echo "Error: S3_BUCKET must be provided."
   exit 1
@@ -45,7 +47,8 @@ fi
 echo "Connecting to SQL Server $SQL_HOST:$SQL_PORT..."
 
 # 1. Create or Update Credential
-cat <<EOF > /tmp/setup_cred.sql
+echo "Setting up S3 credentials in SQL Server for $CREDENTIAL_URL ..."
+/opt/mssql-tools/bin/sqlcmd -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -C <<EOF
 IF NOT EXISTS (SELECT * FROM sys.credentials WHERE name = '$CREDENTIAL_URL')
 BEGIN
     CREATE CREDENTIAL [$CREDENTIAL_URL]
@@ -61,19 +64,16 @@ END
 GO
 EOF
 
-echo "Setting up S3 credentials in SQL Server for $CREDENTIAL_URL ..."
-/opt/mssql-tools/bin/sqlcmd -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -P "$SQL_PASSWORD" -C -i /tmp/setup_cred.sql
-
 # 2. Get list of databases
 if [ "$BACKUP_ALL_DATABASES" = "true" ] || [ "$BACKUP_ALL_DATABASES" = "1" ]; then
   echo "Fetching all non-system databases..."
-  cat <<EOF > /tmp/get_dbs.sql
+  # -W removes trailing spaces, -h -1 removes headers
+  DBS_LIST=$(/opt/mssql-tools/bin/sqlcmd -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -C -W -h -1 <<EOF
 SET NOCOUNT ON;
 SELECT name FROM sys.databases WHERE name NOT IN ('master', 'tempdb', 'model', 'msdb') AND state_desc = 'ONLINE';
 GO
 EOF
-  # -W removes trailing spaces, -h -1 removes headers
-  DBS_LIST=$(/opt/mssql-tools/bin/sqlcmd -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -P "$SQL_PASSWORD" -C -W -h -1 -i /tmp/get_dbs.sql)
+)
   # Convert the newline separated list into an array
   mapfile -t DBS <<< "$DBS_LIST"
 elif [ -n "$SQL_DB" ]; then
@@ -95,13 +95,12 @@ for db in "${DBS[@]}"; do
     echo "=============================================="
     echo "Backing up database: $db to $FULL_URL..."
     
-    cat <<EOF > /tmp/backup.sql
+    /opt/mssql-tools/bin/sqlcmd -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -C <<EOF
 BACKUP DATABASE [$db] 
 TO URL = '$FULL_URL'
 WITH COMPRESSION, STATS = 10, INIT, FORMAT;
 GO
 EOF
-    /opt/mssql-tools/bin/sqlcmd -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -P "$SQL_PASSWORD" -C -i /tmp/backup.sql
     echo "Finished backing up $db."
   fi
 done
