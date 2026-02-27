@@ -111,8 +111,11 @@ fi
 
 # 3. Backup loop
 for db in "${DBS[@]}"; do
-  # Trim whitespace
-  db=$(echo "$db" | xargs)
+  # Trim whitespace using bash parameter expansion instead of xargs (performance optimization)
+  # Trim leading whitespace
+  db="${db#"${db%%[![:space:]]*}"}"
+  # Trim trailing whitespace
+  db="${db%"${db##*[![:space:]]}"}"
   
   # Ignore empty lines or dashed lines from sqlcmd output
   if [ -n "$db" ] && [[ ! "$db" =~ ^-+$ ]]; then
