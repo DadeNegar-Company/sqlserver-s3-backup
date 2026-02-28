@@ -1,0 +1,4 @@
+## 2024-05-23 - Prevent SQLCMD credential exposure in command lines and files
+**Vulnerability:** SQL Server credentials (`SQL_PASSWORD`) were passed via the `-P` command line argument to `sqlcmd`, exposing them to `ps aux` and process listings. Additionally, sensitive AWS credentials were written to temporary files on disk (`/tmp/*.sql`), exposing them to anyone with read access to `/tmp`.
+**Learning:** Passing credentials as arguments or writing them to temporary files creates easily accessible attack vectors, as they can be captured by logging, process monitoring, or file system access.
+**Prevention:** Use the `SQLCMDPASSWORD` environment variable instead of `-P` to pass passwords securely to `sqlcmd`. Use bash process substitution `<(...)` to provide input files directly from memory without writing sensitive data to disk.
