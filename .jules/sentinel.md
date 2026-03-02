@@ -1,0 +1,4 @@
+## 2026-03-02 - [Secure SQL Server Authentication and Avoid Sensitive Temp Files]
+**Vulnerability:** SQL Server passwords and S3 credentials were exposed in the process list via `sqlcmd -P` and written to disk in temporary files (e.g., `/tmp/setup_cred.sql`, `/tmp/backup.sql`).
+**Learning:** `sqlcmd` commands with `-P` expose credentials to any user able to run `ps`, and writing sensitive commands to `/tmp` leaves secrets on disk.
+**Prevention:** Always use the `SQLCMDPASSWORD` environment variable for `sqlcmd` authentication and use bash process substitution (`<(...)`) to pass queries containing secrets without writing to disk.
