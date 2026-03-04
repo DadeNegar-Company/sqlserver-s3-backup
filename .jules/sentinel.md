@@ -1,0 +1,4 @@
+## 2024-05-20 - Prevent SQL Command Credential Leakage
+**Vulnerability:** SQL Server credentials and S3 secret keys were exposed in process lists (via `-P` flag) and written to temporary files on disk (`/tmp/setup_cred.sql`), respectively.
+**Learning:** Command line arguments are visible to system processes like `ps`, and writing to `/tmp` risks exposing secrets if the script terminates abnormally or if another process inspects the `/tmp` directory.
+**Prevention:** Use environment variables like `SQLCMDPASSWORD` for passwords. Use Bash process substitution `<(...)` with here-docs instead of intermediate files when piping sensitive data to commands like `sqlcmd`.
