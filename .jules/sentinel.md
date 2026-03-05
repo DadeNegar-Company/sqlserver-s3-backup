@@ -1,0 +1,4 @@
+## 2026-03-05 - SQL Injection / Credential Leak via Command Line Arguments and Temp Files
+**Vulnerability:** The script was passing the SQL server password using the `-P` flag to `sqlcmd`, exposing it to process lists (`ps -ef`). Additionally, S3 credentials were being written to temporary SQL files (`/tmp/setup_cred.sql`, `/tmp/backup.sql`) which remained on disk, posing a significant risk of credential exposure.
+**Learning:** While using command-line arguments and temporary files is often the simplest way to interact with CLI tools, it can inadvertently expose sensitive information to the host system or container environment.
+**Prevention:** Use environment variables (like `SQLCMDPASSWORD`) for passing secrets to CLI tools to avoid process list exposure. Use bash process substitution (`<(...)`) instead of writing sensitive scripts to the filesystem.
