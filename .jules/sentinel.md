@@ -1,0 +1,4 @@
+## 2024-05-24 - Prevent SQL Credential Leakage in CLI and On-Disk
+**Vulnerability:** SQL Server credentials (password passed via `-P`) were exposed in process lists, and S3 credentials were leaked on disk by writing SQL scripts to `/tmp/` files.
+**Learning:** Command-line arguments and temporary files in shared directories (`/tmp`) are highly vulnerable to local credential harvesting.
+**Prevention:** Always use `SQLCMDPASSWORD` environment variable instead of `-P`. For tools like `sqlcmd` that may not support bash process substitution or anonymous pipes cleanly, use `mktemp` to create temporary files and enforce strict (`chmod 600`) permissions, ensuring they are deleted immediately after use.
