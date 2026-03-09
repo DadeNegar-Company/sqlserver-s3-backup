@@ -1,0 +1,4 @@
+## 2024-10-24 - [Secure SQL Server Authentication and Temporary File Handling]
+**Vulnerability:** SQL Server passwords were passed via the `-P` command line argument, exposing them to process listings (`ps`). S3 credentials were written to predictable, world-readable temporary files in `/tmp` without strict permissions or guaranteed cleanup.
+**Learning:** `sqlcmd` does not reliably support process substitution (`<()`) for secure input, and traditional temporary files in `/tmp` are vulnerable to local read/write access. Additionally, passing secrets via CLI arguments exposes them globally.
+**Prevention:** Use the `SQLCMDPASSWORD` environment variable instead of `-P`. Use `mktemp` for temporary files, immediately apply `chmod 600`, and set up a `trap 'rm -f ...' EXIT` to guarantee cleanup, preventing credential exposure on disk and in process lists.
