@@ -1,0 +1,4 @@
+## 2024-05-24 - Secure Credential Handling and Temp Files in SQL Server Scripts
+**Vulnerability:** SQL Server password passed via command-line (`-P`), exposing it in the process list (`ps aux`), and sensitive SQL queries with credentials written to insecure, static `/tmp` files without cleanup.
+**Learning:** `sqlcmd` may not reliably support bash process substitution for input files, leading developers to use temporary files. However, failing to set strict permissions (`chmod 600`) and missing a cleanup `trap` leaves credentials vulnerable to local file inclusion or unauthorized access.
+**Prevention:** Always use the `SQLCMDPASSWORD` environment variable instead of `-P`. Use `mktemp` to securely create temporary files, enforce strict file permissions (`chmod 600`), and guarantee cleanup using `trap 'rm -f ...' EXIT`.
