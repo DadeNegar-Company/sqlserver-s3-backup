@@ -133,7 +133,8 @@ BACKUP DATABASE [$db]
 $URL_LIST
 -- Set MAXTRANSFERSIZE to 20MB (20971520) - max allowed for S3
 -- Set BUFFERCOUNT to 100 for high-throughput parallel uploads across 8 stripes
-WITH COMPRESSION, MAXTRANSFERSIZE = 20971520, STATS = 10, INIT, FORMAT, BUFFERCOUNT = 100,
+-- ⚡ Bolt: Set BLOCKSIZE to 65536 to optimize memory buffer alignment and I/O performance
+WITH COMPRESSION, MAXTRANSFERSIZE = 20971520, STATS = 10, INIT, FORMAT, BUFFERCOUNT = 100, BLOCKSIZE = 65536,
 BACKUP_OPTIONS = '{"s3": {"region":"${S3_REGION:-us-east-1}"}}';
 GO
 EOF
