@@ -1,0 +1,4 @@
+## 2024-05-24 - [Secure Credentials and Temp Files in Bash SQL Scripts]
+**Vulnerability:** SQL Server passwords were unnecessarily exposed in `backup.sh` via the `sqlcmd -P` flag and S3 access keys were written to insecure temporary files (`/tmp/*.sql`) without proper permission restrictions.
+**Learning:** Passing credentials via `-P` exposes them to process listings, and static `/tmp` files without `chmod 600` risk data leakage and symlink attacks. `sqlcmd` may not reliably support bash process substitution.
+**Prevention:** Always use `SQLCMDPASSWORD` to pass passwords to `sqlcmd`. For input files containing sensitive information, use `mktemp` to securely create temporary files, enforce strict permissions (`chmod 600`), and guarantee cleanup using a `trap 'rm -f ...' EXIT` to prevent credential exposure.
