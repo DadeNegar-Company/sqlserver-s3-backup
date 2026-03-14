@@ -43,6 +43,16 @@ if [ -n "$S3_PREFIX" ]; then
   BACKUP_BASE_URL="${BACKUP_BASE_URL}/${S3_PREFIX}"
 fi
 
+# Prevent SQL_PASSWORD from showing in process list via -P
+export SQLCMDPASSWORD="$SQL_PASSWORD"
+
+# Secure temporary files
+SETUP_CRED_SQL=$(mktemp /tmp/setup_cred_XXXXXX)
+GET_DBS_SQL=$(mktemp /tmp/get_dbs_XXXXXX)
+BACKUP_SQL=$(mktemp /tmp/backup_XXXXXX)
+chmod 600 "$SETUP_CRED_SQL" "$GET_DBS_SQL" "$BACKUP_SQL"
+trap 'rm -f "$SETUP_CRED_SQL" "$GET_DBS_SQL" "$BACKUP_SQL"' EXIT
+
 # Helper: run sqlcmd and check output for SQL errors
 # Usage: run_sqlcmd_checked "description" [sqlcmd args...]
 # Returns non-zero if SQL errors (Msg ..., Level ...) are detected in output
@@ -68,7 +78,7 @@ run_sqlcmd_checked() {
 echo "Connecting to SQL Server $SQL_HOST:$SQL_PORT..."
 
 # 1. Create or Update Credential
-cat <<EOF > /tmp/setup_cred.sql
+cat <<EOF > "$SETUP_CRED_SQL"
 IF NOT EXISTS (SELECT * FROM sys.credentials WHERE name = '$CREDENTIAL_URL')
 BEGIN
     CREATE CREDENTIAL [$CREDENTIAL_URL]
@@ -85,7 +95,7 @@ GO
 EOF
 
 echo "Setting up S3 credentials in SQL Server for $CREDENTIAL_URL ..."
-if ! run_sqlcmd_checked "Credential setup" -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -P "$SQL_PASSWORD" -C -i /tmp/setup_cred.sql; then
+if ! run_sqlcmd_checked "Credential setup" -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -C -i "$SETUP_CRED_SQL"; then
   echo "FATAL: Failed to set up S3 credentials. Aborting backup."
   exit 1
 fi
@@ -93,13 +103,13 @@ fi
 # 2. Get list of databases
 if [ "$BACKUP_ALL_DATABASES" = "true" ] || [ "$BACKUP_ALL_DATABASES" = "1" ]; then
   echo "Fetching all non-system databases..."
-  cat <<EOF > /tmp/get_dbs.sql
+  cat <<EOF > "$GET_DBS_SQL"
 SET NOCOUNT ON;
 SELECT name FROM sys.databases WHERE name NOT IN ('master', 'tempdb', 'model', 'msdb') AND state_desc = 'ONLINE';
 GO
 EOF
   # -W removes trailing spaces, -h -1 removes headers
-  DBS_LIST=$(/opt/mssql-tools/bin/sqlcmd -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -P "$SQL_PASSWORD" -C -W -h -1 -i /tmp/get_dbs.sql)
+  DBS_LIST=$(/opt/mssql-tools/bin/sqlcmd -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -C -W -h -1 -i "$GET_DBS_SQL")
   # Convert the newline separated list into an array
   mapfile -t DBS <<< "$DBS_LIST"
 elif [ -n "$SQL_DB" ]; then
@@ -128,7 +138,7 @@ for db in "${DBS[@]}"; do
       fi
     done
 
-    cat <<EOF > /tmp/backup.sql
+    cat <<EOF > "$BACKUP_SQL"
 BACKUP DATABASE [$db] 
 $URL_LIST
 -- Set MAXTRANSFERSIZE to 20MB (20971520) - max allowed for S3
@@ -137,7 +147,7 @@ WITH COMPRESSION, MAXTRANSFERSIZE = 20971520, STATS = 10, INIT, FORMAT, BUFFERCO
 BACKUP_OPTIONS = '{"s3": {"region":"${S3_REGION:-us-east-1}"}}';
 GO
 EOF
-    if run_sqlcmd_checked "Backup of $db" -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -P "$SQL_PASSWORD" -C -i /tmp/backup.sql; then
+    if run_sqlcmd_checked "Backup of $db" -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -C -i "$BACKUP_SQL"; then
       echo "Successfully backed up $db."
     else
       echo "FAILED to back up $db!"

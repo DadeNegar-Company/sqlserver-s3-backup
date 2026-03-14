@@ -1,0 +1,4 @@
+## 2024-05-24 - SQLcmd Credential Exposure via Process Args and Insecure Temp Files
+**Vulnerability:** SQL Server passwords were passed via `-P` to `sqlcmd`, exposing them in the process list. Additionally, SQL scripts containing sensitive credentials (like S3 keys) were written to predictable, globally readable files in `/tmp` (`/tmp/setup_cred.sql`, etc.).
+**Learning:** External commands like `sqlcmd` are visible in the process table to other users on the system. Predictable temp files without restricted permissions can lead to credential theft and race conditions.
+**Prevention:** Use the `SQLCMDPASSWORD` environment variable instead of the `-P` argument. Always use `mktemp` to create temporary files, restrict permissions using `chmod 600`, and ensure they are cleaned up using a `trap 'rm -f ...' EXIT`.
