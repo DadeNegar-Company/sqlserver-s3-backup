@@ -1,0 +1,4 @@
+## 2024-10-24 - Secure Credential Handling in Bash Scripts
+**Vulnerability:** SQL Server credentials (S3 access keys) were written to predictable, globally readable temporary files (`/tmp/setup_cred.sql`). In addition, `sqlcmd` was invoked with `-P "$SQL_PASSWORD"`, exposing the database password in the process list (`ps aux`).
+**Learning:** Shell scripts interacting with sensitive data must use strict permissions for temporary files and avoid passing secrets via command-line arguments, which are visible system-wide.
+**Prevention:** Always use `mktemp` with randomized suffixes (`XXXXXX`) and no extensions, immediately enforce `chmod 600`, and clean up securely using a `trap 'rm -f ...' EXIT`. Pass credentials via environment variables (like `SQLCMDPASSWORD`) instead of command-line flags.
