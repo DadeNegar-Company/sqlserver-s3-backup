@@ -1,0 +1,4 @@
+## 2026-03-16 - Prevent Credential Exposure in `sqlcmd` and Temporary Files
+**Vulnerability:** SQL Server passwords were passed via the `-P` flag in `sqlcmd` invocations, exposing them to process monitoring. Temporary SQL files containing sensitive credentials were created with predictable names in `/tmp/` without secure permissions or cleanup.
+**Learning:** Using the `SQLCMDPASSWORD` environment variable is the secure way to authenticate `sqlcmd` without leaking credentials in process lists. Creating secure temporary files with `mktemp` ending in `XXXXXX` (without extensions), applying strict permissions (`chmod 600`), and cleaning up with an `EXIT` trap ensures sensitive data written to disk is protected.
+**Prevention:** Always use `SQLCMDPASSWORD` for SQL Server interactions and avoid `-P`. When generating temporary files containing sensitive commands or data, use `mktemp` with secure templates, apply `chmod 600`, and clean up with a `trap 'rm -f ...' EXIT`.
