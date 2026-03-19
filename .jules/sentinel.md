@@ -1,0 +1,4 @@
+## 2026-03-19 - Insecure SQL Server Credentials Handling
+**Vulnerability:** SQL Server password and S3 credentials (written to SQL temp files) were exposed. The password was passed via the `-P` argument to `sqlcmd`, and credentials were written to world-readable static temporary files.
+**Learning:** Using `-P` passes the password in plain text to the command line, exposing it to system monitoring tools. Static temporary files lacking strict permissions (`chmod 600`) and random naming (`mktemp`) can be read by other users and are vulnerable to symlink attacks.
+**Prevention:** Always use the `SQLCMDPASSWORD` environment variable instead of `-P` when invoking `sqlcmd`. Always use securely generated (`mktemp`) temporary files without extensions, enforce `chmod 600` permissions, and use `trap` to ensure cleanup upon exit.
