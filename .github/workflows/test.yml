@@ -10,21 +10,17 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    services:
-      mssql:
-        image: mcr.microsoft.com/mssql/server:2022-latest
-        env:
-          ACCEPT_EULA: Y
-          MSSQL_SA_PASSWORD: YourStrong!Passw0rd
-        ports:
-          - 1433:1433
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Start MinIO Service
+      - name: Start Services (MSSQL & MinIO)
         run: |
+          docker run -d --name mssql --network host \
+            -e ACCEPT_EULA=Y \
+            -e MSSQL_SA_PASSWORD=YourStrong!Passw0rd \
+            mcr.microsoft.com/mssql/server:2022-latest
+
           docker run -d --name minio --network host \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
@@ -44,7 +40,7 @@ jobs:
 
       - name: Setup Test Database
         run: |
-          docker run --rm --network host mcr.microsoft.com/mssql-tools /opt/mssql-tools/bin/sqlcmd -S 127.0.0.1 -U sa -P "YourStrong!Passw0rd" -Q "CREATE DATABASE TestDB; GO USE TestDB; GO CREATE TABLE TestTable (Id INT); GO INSERT INTO TestTable VALUES (1);"
+          docker run --rm --network host mcr.microsoft.com/mssql-tools /opt/mssql-tools/bin/sqlcmd -S 127.0.0.1 -U sa -P "YourStrong!Passw0rd" -Q "CREATE DATABASE TestDB;"
 
       - name: Setup MinIO Bucket
         run: |
