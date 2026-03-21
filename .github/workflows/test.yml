@@ -19,18 +19,16 @@ jobs:
         ports:
           - 1433:1433
 
-      minio:
-        image: minio/minio
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        ports:
-          - 9000:9000
-        command: server /data
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Start MinIO Service
+        run: |
+          docker run -d --name minio --network host \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio server /data
 
       - name: Syntax check
         run: bash -n backup.sh
