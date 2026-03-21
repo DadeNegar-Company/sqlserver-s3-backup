@@ -31,9 +31,10 @@ jobs:
           # Create a setup script for MSSQL to trust the MinIO certificate
           cat << 'EOF' > setup-mssql.sh
           #!/bin/bash
-          cat /minio-certs/public.crt >> /etc/ssl/certs/ca-certificates.crt
-          cp /minio-certs/public.crt /usr/local/share/ca-certificates/minio.crt
-          update-ca-certificates
+          mkdir -p /var/opt/mssql/security/ca-certificates
+          cp /minio-certs/public.crt /var/opt/mssql/security/ca-certificates/minio.crt
+          chmod 400 /var/opt/mssql/security/ca-certificates/minio.crt
+          chown -R mssql:mssql /var/opt/mssql/security
           exec /opt/mssql/bin/sqlservr
           EOF
           chmod +x setup-mssql.sh
