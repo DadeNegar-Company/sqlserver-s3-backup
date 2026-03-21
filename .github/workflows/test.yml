@@ -14,17 +14,37 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Generate TLS Certificate
+        run: |
+          mkdir -p minio-certs
+          openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout minio-certs/private.key -out minio-certs/public.crt -subj "/CN=127.0.0.1" -addext "subjectAltName = IP:127.0.0.1"
+
       - name: Start Services (MSSQL & MinIO)
         run: |
-          docker run -d --name mssql --network host \
-            -e ACCEPT_EULA=Y \
-            -e MSSQL_SA_PASSWORD=YourStrong!Passw0rd \
-            mcr.microsoft.com/mssql/server:2022-latest
-
+          # Start MinIO with TLS enabled
           docker run -d --name minio --network host \
+            -v $(pwd)/minio-certs:/root/.minio/certs \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio server /data
+            minio/minio server /data --certs-dir /root/.minio/certs
+
+          # Create a setup script for MSSQL to trust the MinIO certificate
+          cat << 'EOF' > setup-mssql.sh
+          #!/bin/bash
+          cp /minio-certs/public.crt /usr/local/share/ca-certificates/minio.crt
+          update-ca-certificates
+          exec /opt/mssql/bin/sqlservr
+          EOF
+          chmod +x setup-mssql.sh
+
+          # Start MSSQL as root to install the cert, then run sqlservr
+          docker run -d --name mssql --network host \
+            -v $(pwd)/minio-certs:/minio-certs \
+            -v $(pwd)/setup-mssql.sh:/setup-mssql.sh \
+            -e ACCEPT_EULA=Y \
+            -e MSSQL_SA_PASSWORD=YourStrong!Passw0rd \
+            --user root \
+            mcr.microsoft.com/mssql/server:2022-latest /setup-mssql.sh
 
       - name: Syntax check
         run: bash -n backup.sh
@@ -44,7 +64,7 @@ jobs:
 
       - name: Setup MinIO Bucket
         run: |
-          docker run --rm --network host -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin --entrypoint sh minio/mc -c "mc alias set myminio http://127.0.0.1:9000 minioadmin minioadmin && mc mb myminio/test-bucket"
+          docker run --rm --network host -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin --entrypoint sh minio/mc -c "mc alias set myminio https://127.0.0.1:9000 minioadmin minioadmin --insecure && mc mb myminio/test-bucket --insecure"
 
       - name: Build Docker Image
         run: docker build -t sql-backup .
@@ -59,13 +79,13 @@ jobs:
             -e S3_BUCKET=test-bucket \
             -e S3_ACCESS_KEY_ID=minioadmin \
             -e S3_SECRET_ACCESS_KEY=minioadmin \
-            -e S3_ENDPOINT=http://127.0.0.1:9000 \
+            -e S3_ENDPOINT=https://127.0.0.1:9000 \
             -e BACKUP_ALL_DATABASES=1 \
             sql-backup
 
       - name: Verify Backup Parts in MinIO
         run: |
-          PARTS=$(docker run --rm --network host -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin --entrypoint sh minio/mc -c "mc alias set myminio http://127.0.0.1:9000 minioadmin minioadmin > /dev/null && mc ls myminio/test-bucket" | (grep TestDB || true) | wc -l)
+          PARTS=$(docker run --rm --network host -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin --entrypoint sh minio/mc -c "mc alias set myminio https://127.0.0.1:9000 minioadmin minioadmin --insecure > /dev/null && mc ls myminio/test-bucket --insecure" | (grep TestDB || true) | wc -l)
           if [ "$PARTS" -ne 8 ]; then
             echo "Expected 8 parts for TestDB backup, but found $PARTS."
             exit 1
