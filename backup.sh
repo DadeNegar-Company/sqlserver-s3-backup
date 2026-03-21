@@ -65,10 +65,15 @@ run_sqlcmd_checked() {
   return 0
 }
 
+export SQLCMDPASSWORD="$SQL_PASSWORD"
+TMP_FILE=$(mktemp /tmp/sqlcmd_XXXXXX)
+chmod 600 "$TMP_FILE"
+trap 'rm -f "$TMP_FILE"' EXIT
+
 echo "Connecting to SQL Server $SQL_HOST:$SQL_PORT..."
 
 # 1. Create or Update Credential
-cat <<EOF > /tmp/setup_cred.sql
+cat <<EOF > "$TMP_FILE"
 IF NOT EXISTS (SELECT * FROM sys.credentials WHERE name = '$CREDENTIAL_URL')
 BEGIN
     CREATE CREDENTIAL [$CREDENTIAL_URL]
@@ -85,7 +90,7 @@ GO
 EOF
 
 echo "Setting up S3 credentials in SQL Server for $CREDENTIAL_URL ..."
-if ! run_sqlcmd_checked "Credential setup" -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -P "$SQL_PASSWORD" -C -i /tmp/setup_cred.sql; then
+if ! run_sqlcmd_checked "Credential setup" -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -C -i "$TMP_FILE"; then
   echo "FATAL: Failed to set up S3 credentials. Aborting backup."
   exit 1
 fi
@@ -93,13 +98,13 @@ fi
 # 2. Get list of databases
 if [ "$BACKUP_ALL_DATABASES" = "true" ] || [ "$BACKUP_ALL_DATABASES" = "1" ]; then
   echo "Fetching all non-system databases..."
-  cat <<EOF > /tmp/get_dbs.sql
+  cat <<EOF > "$TMP_FILE"
 SET NOCOUNT ON;
 SELECT name FROM sys.databases WHERE name NOT IN ('master', 'tempdb', 'model', 'msdb') AND state_desc = 'ONLINE';
 GO
 EOF
   # -W removes trailing spaces, -h -1 removes headers
-  DBS_LIST=$(/opt/mssql-tools/bin/sqlcmd -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -P "$SQL_PASSWORD" -C -W -h -1 -i /tmp/get_dbs.sql)
+  DBS_LIST=$(/opt/mssql-tools/bin/sqlcmd -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -C -W -h -1 -i "$TMP_FILE")
   # Convert the newline separated list into an array
   mapfile -t DBS <<< "$DBS_LIST"
 elif [ -n "$SQL_DB" ]; then
@@ -128,7 +133,7 @@ for db in "${DBS[@]}"; do
       fi
     done
 
-    cat <<EOF > /tmp/backup.sql
+    cat <<EOF > "$TMP_FILE"
 BACKUP DATABASE [$db] 
 $URL_LIST
 -- Set MAXTRANSFERSIZE to 20MB (20971520) - max allowed for S3
@@ -137,7 +142,7 @@ WITH COMPRESSION, MAXTRANSFERSIZE = 20971520, STATS = 10, INIT, FORMAT, BUFFERCO
 BACKUP_OPTIONS = '{"s3": {"region":"${S3_REGION:-us-east-1}"}}';
 GO
 EOF
-    if run_sqlcmd_checked "Backup of $db" -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -P "$SQL_PASSWORD" -C -i /tmp/backup.sql; then
+    if run_sqlcmd_checked "Backup of $db" -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -C -i "$TMP_FILE"; then
       echo "Successfully backed up $db."
     else
       echo "FAILED to back up $db!"
