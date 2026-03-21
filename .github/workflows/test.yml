@@ -1,0 +1,79 @@
+name: E2E Backup Test
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: YourStrong!Passw0rd
+        ports:
+          - 1433:1433
+
+      minio:
+        image: minio/minio
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports:
+          - 9000:9000
+        command: server /data
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Syntax check
+        run: bash -n backup.sh
+
+      - name: Wait for SQL Server
+        run: |
+          echo "Waiting for SQL Server to start..."
+          for i in {1..30}; do
+            docker run --rm --network host mcr.microsoft.com/mssql-tools /opt/mssql-tools/bin/sqlcmd -S 127.0.0.1 -U sa -P "YourStrong!Passw0rd" -Q "SELECT 1" > /dev/null 2>&1 && break
+            echo "Waiting..."
+            sleep 2
+          done
+
+      - name: Setup Test Database
+        run: |
+          docker run --rm --network host mcr.microsoft.com/mssql-tools /opt/mssql-tools/bin/sqlcmd -S 127.0.0.1 -U sa -P "YourStrong!Passw0rd" -Q "CREATE DATABASE TestDB; GO USE TestDB; GO CREATE TABLE TestTable (Id INT); GO INSERT INTO TestTable VALUES (1);"
+
+      - name: Setup MinIO Bucket
+        run: |
+          docker run --rm --network host -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin --entrypoint sh minio/mc -c "mc alias set myminio http://127.0.0.1:9000 minioadmin minioadmin && mc mb myminio/test-bucket"
+
+      - name: Build Docker Image
+        run: docker build -t sql-backup .
+
+      - name: Run Backup E2E Test
+        run: |
+          docker run --rm --network host \
+            -e SQL_HOST=127.0.0.1 \
+            -e SQL_PORT=1433 \
+            -e SQL_USER=sa \
+            -e SQL_PASSWORD="YourStrong!Passw0rd" \
+            -e S3_BUCKET=test-bucket \
+            -e S3_ACCESS_KEY_ID=minioadmin \
+            -e S3_SECRET_ACCESS_KEY=minioadmin \
+            -e S3_ENDPOINT=http://127.0.0.1:9000 \
+            -e BACKUP_ALL_DATABASES=1 \
+            sql-backup
+
+      - name: Verify Backup Parts in MinIO
+        run: |
+          PARTS=$(docker run --rm --network host -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin --entrypoint sh minio/mc -c "mc alias set myminio http://127.0.0.1:9000 minioadmin minioadmin > /dev/null && mc ls myminio/test-bucket" | (grep TestDB || true) | wc -l)
+          if [ "$PARTS" -ne 8 ]; then
+            echo "Expected 8 parts for TestDB backup, but found $PARTS."
+            exit 1
+          fi
+          echo "Successfully verified 8 parts exist in S3 (MinIO) for the backup."
