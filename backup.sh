@@ -76,19 +76,25 @@ run_sqlcmd_checked() {
 
 echo "Connecting to SQL Server $SQL_HOST:$SQL_PORT..."
 
+# Secure variables for credential setup
+SAFE_CREDENTIAL_URL="${CREDENTIAL_URL//\'/\'\'}"
+SAFE_CREDENTIAL_URL_ID="${CREDENTIAL_URL//]/]]}"
+SAFE_S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID//\'/\'\'}"
+SAFE_S3_SECRET_ACCESS_KEY="${S3_SECRET_ACCESS_KEY//\'/\'\'}"
+
 # 1. Create or Update Credential
 cat <<EOF > "$SETUP_CRED_SQL"
-IF NOT EXISTS (SELECT * FROM sys.credentials WHERE name = '$CREDENTIAL_URL')
+IF NOT EXISTS (SELECT * FROM sys.credentials WHERE name = '$SAFE_CREDENTIAL_URL')
 BEGIN
-    CREATE CREDENTIAL [$CREDENTIAL_URL]
+    CREATE CREDENTIAL [$SAFE_CREDENTIAL_URL_ID]
     WITH IDENTITY = 'S3 Access Key',
-    SECRET = '${S3_ACCESS_KEY_ID}:${S3_SECRET_ACCESS_KEY}';
+    SECRET = '${SAFE_S3_ACCESS_KEY_ID}:${SAFE_S3_SECRET_ACCESS_KEY}';
 END
 ELSE
 BEGIN
-    ALTER CREDENTIAL [$CREDENTIAL_URL]
+    ALTER CREDENTIAL [$SAFE_CREDENTIAL_URL_ID]
     WITH IDENTITY = 'S3 Access Key',
-    SECRET = '${S3_ACCESS_KEY_ID}:${S3_SECRET_ACCESS_KEY}';
+    SECRET = '${SAFE_S3_ACCESS_KEY_ID}:${SAFE_S3_SECRET_ACCESS_KEY}';
 END
 GO
 EOF
@@ -125,10 +131,22 @@ for db in "${DBS[@]}"; do
   
   # Ignore empty lines or dashed lines from sqlcmd output
   if [ -n "$db" ] && [[ ! "$db" =~ ^-+$ ]]; then
+
+    # Secure variables for backup
+    SAFE_DB_NAME="${db//]/]]}"
+    SAFE_DB_URL_PART="${db//\'/\'\'}"
+
+    # Secure S3_REGION default fallback handling
+    SAFE_S3_REGION="${S3_REGION:-us-east-1}"
+    SAFE_S3_REGION="${SAFE_S3_REGION//\'/\'\'}"
+
+    # Secure BACKUP_BASE_URL default fallback handling
+    SAFE_BACKUP_BASE_URL="${BACKUP_BASE_URL//\'/\'\'}"
+
     # Generate 8 URLs for striping to support large databases and improve performance
     URL_LIST=""
     for i in {1..8}; do
-      STRIPE_URL="${BACKUP_BASE_URL}/${db}_${DATE}_part${i}.bak"
+      STRIPE_URL="${SAFE_BACKUP_BASE_URL}/${SAFE_DB_URL_PART}_${DATE}_part${i}.bak"
       if [ -z "$URL_LIST" ]; then
         URL_LIST="TO URL = '$STRIPE_URL'"
       else
@@ -138,13 +156,13 @@ for db in "${DBS[@]}"; do
     done
 
     cat <<EOF > "$BACKUP_SQL"
-BACKUP DATABASE [$db] 
+BACKUP DATABASE [$SAFE_DB_NAME]
 $URL_LIST
 -- Set MAXTRANSFERSIZE to 20MB (20971520) - max allowed for S3
 -- Set BUFFERCOUNT to 100 for high-throughput parallel uploads across 8 stripes
 -- Set BLOCKSIZE to 64KB (65536) to maximize S3 upload throughput
 WITH COMPRESSION, MAXTRANSFERSIZE = 20971520, STATS = 10, INIT, FORMAT, BUFFERCOUNT = 100, BLOCKSIZE = 65536,
-BACKUP_OPTIONS = '{"s3": {"region":"${S3_REGION:-us-east-1}"}}';
+BACKUP_OPTIONS = '{"s3": {"region":"$SAFE_S3_REGION"}}';
 GO
 EOF
     if run_sqlcmd_checked "Backup of $db" -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -C -i "$BACKUP_SQL"; then
