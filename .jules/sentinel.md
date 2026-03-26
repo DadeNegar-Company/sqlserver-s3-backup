@@ -6,6 +6,10 @@
 **Vulnerability:** Shell variables (`db`, `S3_ACCESS_KEY_ID`, `CREDENTIAL_URL`, `S3_REGION`) were interpolated directly into dynamically generated SQL scripts in `backup.sh` without escaping. An attacker controlling the database name or S3 credentials could perform SQL injection, arbitrary code execution via `xp_cmdshell` or drop databases.
 **Learning:** Generating SQL scripts using Bash here-docs (`cat <<EOF > script.sql`) exposes the system to SQL injection when user-controlled strings contain unescaped single quotes (`'`) or right brackets (`]`).
 **Prevention:** Always sanitize inputs interpolated into SQL scripts. For T-SQL, escape single quotes by doubling them (`''`) and right brackets by doubling them (`]]`) using bash parameter expansion (e.g., `${var//\'/\'\'}`).
+## 2024-05-24 - Fix Denial of Service risk from unsafe whitespace trimming
+**Vulnerability:** Using `echo "$var" | xargs` to trim whitespace from dynamic database names crashes the script if the name contains unmatched single or double quotes, due to `xargs` parsing rules and the `set -e` script configuration.
+**Learning:** `xargs` is not safe for basic string manipulation of untrusted input because it interprets quotes and special characters, potentially leading to a Denial of Service.
+**Prevention:** Use native bash parameter expansion (e.g., `${var#"${var%%[![:space:]]*}"}`) to safely trim whitespace without evaluating special characters.
 ## 2024-03-26 - Fix Denial of Service in backup loop via xargs quote parsing
 **Vulnerability:** The script used `echo "$db" | xargs` to trim whitespace from database names. If a database name contained an unmatched quote, `xargs` would crash. In a `set -e` script, this crashes the entire backup process, causing a Denial of Service for subsequent databases.
 **Learning:** `xargs` parses quotes and special characters by default. Using it for basic string manipulation on untrusted or dynamic input can lead to unexpected crashes.
