@@ -126,8 +126,7 @@ fi
 
 # 3. Backup loop
 for db in "${DBS[@]}"; do
-  # Trim whitespace and carriage returns securely
-  db="${db//$'\r'/}"
+  # Trim whitespace safely without using xargs, which fails on unmatched quotes
   db="${db#"${db%%[![:space:]]*}"}"
   db="${db%"${db##*[![:space:]]}"}"
   
