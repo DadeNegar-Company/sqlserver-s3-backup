@@ -10,3 +10,7 @@
 **Vulnerability:** Using `echo "$var" | xargs` to trim whitespace from dynamic database names crashes the script if the name contains unmatched single or double quotes, due to `xargs` parsing rules and the `set -e` script configuration.
 **Learning:** `xargs` is not safe for basic string manipulation of untrusted input because it interprets quotes and special characters, potentially leading to a Denial of Service.
 **Prevention:** Use native bash parameter expansion (e.g., `${var#"${var%%[![:space:]]*}"}`) to safely trim whitespace without evaluating special characters.
+## 2024-03-26 - Fix Denial of Service in backup loop via xargs quote parsing
+**Vulnerability:** The script used `echo "$db" | xargs` to trim whitespace from database names. If a database name contained an unmatched quote, `xargs` would crash. In a `set -e` script, this crashes the entire backup process, causing a Denial of Service for subsequent databases.
+**Learning:** `xargs` parses quotes and special characters by default. Using it for basic string manipulation on untrusted or dynamic input can lead to unexpected crashes.
+**Prevention:** Avoid `xargs` for basic string manipulation. Use native bash parameter expansion to safely trim whitespace and carriage returns.
