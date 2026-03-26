@@ -6,6 +6,10 @@
 **Vulnerability:** Shell variables (`db`, `S3_ACCESS_KEY_ID`, `CREDENTIAL_URL`, `S3_REGION`) were interpolated directly into dynamically generated SQL scripts in `backup.sh` without escaping. An attacker controlling the database name or S3 credentials could perform SQL injection, arbitrary code execution via `xp_cmdshell` or drop databases.
 **Learning:** Generating SQL scripts using Bash here-docs (`cat <<EOF > script.sql`) exposes the system to SQL injection when user-controlled strings contain unescaped single quotes (`'`) or right brackets (`]`).
 **Prevention:** Always sanitize inputs interpolated into SQL scripts. For T-SQL, escape single quotes by doubling them (`''`) and right brackets by doubling them (`]]`) using bash parameter expansion (e.g., `${var//\'/\'\'}`).
+## 2024-03-24 - Fix unhandled quote risk in database name trimming
+**Vulnerability:** The `backup.sh` script used `echo "$db" | xargs` to trim whitespace from database names. If a database name contained a single quote (`'`), `xargs` failed with an "unmatched single quote" error, causing the entire backup process to crash and leading to Denial of Service for backups.
+**Learning:** Using `xargs` for basic string manipulation like trimming is inherently risky when dealing with dynamic input, as `xargs` parses quotes and special characters differently than simple bash string expansion.
+**Prevention:** Always use safe bash string substitution (e.g., parameter expansion) to remove whitespace and carriage returns rather than relying on external command-line parsing tools.
 ## 2024-05-24 - Fix Denial of Service risk from unsafe whitespace trimming
 **Vulnerability:** Using `echo "$var" | xargs` to trim whitespace from dynamic database names crashes the script if the name contains unmatched single or double quotes, due to `xargs` parsing rules and the `set -e` script configuration.
 **Learning:** `xargs` is not safe for basic string manipulation of untrusted input because it interprets quotes and special characters, potentially leading to a Denial of Service.
