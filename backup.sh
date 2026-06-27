@@ -9,6 +9,10 @@ S3_PREFIX=${S3_PREFIX:-""}
 SQL_HOST=${SQL_HOST:-"localhost"}
 SQL_PORT=${SQL_PORT:-"1433"}
 SQL_USER=${SQL_USER:-"sa"}
+SQLCMD_BIN=${SQLCMD_BIN:-"/opt/mssql-tools/bin/sqlcmd"}
+BACKUP_STRIPE_COUNT=${BACKUP_STRIPE_COUNT:-4}
+BACKUP_BUFFERCOUNT=${BACKUP_BUFFERCOUNT:-32}
+BACKUP_MAXTRANSFERSIZE=${BACKUP_MAXTRANSFERSIZE:-20971520}
 FAILED=0
 
 if [ -z "$SQL_PASSWORD" ]; then
@@ -59,7 +63,7 @@ run_sqlcmd_checked() {
   local desc="$1"
   shift
   local output
-  output=$(/opt/mssql-tools/bin/sqlcmd "$@" 2>&1)
+  output=$("$SQLCMD_BIN" "$@" 2>&1)
   local rc=$?
   echo "$output"
   if [ $rc -ne 0 ]; then
@@ -114,7 +118,7 @@ SELECT name FROM sys.databases WHERE name NOT IN ('master', 'tempdb', 'model', '
 GO
 EOF
   # -W removes trailing spaces, -h -1 removes headers
-  DBS_LIST=$(/opt/mssql-tools/bin/sqlcmd -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -C -W -h -1 -i "$GET_DBS_SQL")
+  DBS_LIST=$("$SQLCMD_BIN" -S "$SQL_HOST,$SQL_PORT" -U "$SQL_USER" -C -W -h -1 -i "$GET_DBS_SQL")
   # Convert the newline separated list into an array
   mapfile -t DBS <<< "$DBS_LIST"
 elif [ -n "$SQL_DB" ]; then
@@ -144,9 +148,9 @@ for db in "${DBS[@]}"; do
     # Secure BACKUP_BASE_URL default fallback handling
     SAFE_BACKUP_BASE_URL="${BACKUP_BASE_URL//\'/\'\'}"
 
-    # Generate 8 URLs for striping to support large databases and improve performance
+    # Generate striped URLs without over-consuming SQL Server backup workers.
     URL_LIST=""
-    for i in {1..8}; do
+    for ((i = 1; i <= BACKUP_STRIPE_COUNT; i++)); do
       STRIPE_URL="${SAFE_BACKUP_BASE_URL}/${SAFE_DB_URL_PART}_${DATE}_part${i}.bak"
       if [ -z "$URL_LIST" ]; then
         URL_LIST="TO URL = '$STRIPE_URL'"
@@ -159,10 +163,10 @@ for db in "${DBS[@]}"; do
     cat <<EOF > "$BACKUP_SQL"
 BACKUP DATABASE [$SAFE_DB_NAME]
 $URL_LIST
--- Set MAXTRANSFERSIZE to 20MB (20971520) - max allowed for S3
--- Set BUFFERCOUNT to 100 for high-throughput parallel uploads across 8 stripes
+-- Set MAXTRANSFERSIZE to 20MB (20971520) - max allowed for S3 by default
+-- Keep BUFFERCOUNT conservative by default to avoid exhausting SQL Server workers
 -- Set BLOCKSIZE to 64KB (65536) to maximize S3 upload throughput
-WITH COMPRESSION, MAXTRANSFERSIZE = 20971520, STATS = 10, INIT, FORMAT, BUFFERCOUNT = 100, BLOCKSIZE = 65536,
+WITH COMPRESSION, MAXTRANSFERSIZE = $BACKUP_MAXTRANSFERSIZE, STATS = 10, INIT, FORMAT, BUFFERCOUNT = $BACKUP_BUFFERCOUNT, BLOCKSIZE = 65536,
 BACKUP_OPTIONS = '{"s3": {"region":"$SAFE_S3_REGION"}}';
 GO
 EOF
